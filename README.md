@@ -47,15 +47,6 @@ Launch at Login is meant to be used from there.
 - No networking, accounts, telemetry, or analytics.
 - Built with the Hardened Runtime.
 
-## Tests
-
-The renewal cycle and store backup logic have unit tests written in Swift Testing. They run
-without launching the app:
-
-```bash
-swift test --package-path Packages/SubsCore
-```
-
 ## License
 
 MIT. See [LICENSE](LICENSE).
