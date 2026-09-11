@@ -12,7 +12,7 @@ import SwiftData
 struct subsApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            Subscription.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
@@ -24,9 +24,11 @@ struct subsApp: App {
     }()
 
     var body: some Scene {
-        WindowGroup {
+        MenuBarExtra("Subscriptions", systemImage: "creditcard.fill") {
             ContentView()
+                .preferredColorScheme(.dark)
         }
+        .menuBarExtraStyle(.window)
         .modelContainer(sharedModelContainer)
     }
 }

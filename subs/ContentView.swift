@@ -2,60 +2,694 @@
 //  ContentView.swift
 //  subs
 //
-//  Created by Macbook M4 Pro on 11/09/2026.
-//
 
-import SwiftUI
+import AppKit
 import SwiftData
+import SwiftUI
+
+private enum PanelRoute: Equatable {
+    case list
+    case add
+    case edit(Subscription)
+}
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query private var items: [Item]
+    @Query(sort: \Subscription.startDate, order: .reverse) private var subscriptions: [Subscription]
+
+    @State private var route: PanelRoute = .list
+    @State private var isShowingPersistenceError = false
+    @State private var persistenceErrorMessage = ""
+    @State private var loginItem = LoginItemController()
+
+    private var isShowingForm: Bool { route != .list }
 
     var body: some View {
-        NavigationSplitView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))")
-                    } label: {
-                        Text(item.timestamp, format: Date.FormatStyle(date: .numeric, time: .standard))
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            let entries = sortedEntries(at: context.date)
+
+            // No GlassEffectContainer around the list: the container draws glass
+            // itself, which escapes the ScrollView's clipping while scrolling.
+            VStack(spacing: 14) {
+                PanelHeader(
+                    nearest: entries.first,
+                    count: entries.count,
+                    isShowingForm: isShowingForm,
+                    onToggleAdd: toggleForm,
+                    loginItem: loginItem
+                )
+
+                switch route {
+                case .add:
+                    SubscriptionFormView(
+                        mode: .add,
+                        onCancel: hideForm,
+                        onSave: addSubscription,
+                        onDelete: nil
+                    )
+                    .id("add")
+                    .transition(.blurReplace)
+                case .edit(let subscription):
+                    SubscriptionFormView(
+                        mode: .edit(name: subscription.name, startDate: subscription.startDate),
+                        onCancel: hideForm,
+                        onSave: { name, startDate in
+                            updateSubscription(subscription, name: name, startDate: startDate)
+                        },
+                        onDelete: { deleteEditedSubscription(subscription) }
+                    )
+                    .id(subscription.id.uuidString)
+                    .transition(.blurReplace)
+                case .list:
+                    if entries.isEmpty {
+                        EmptyStateView(onAdd: showAddForm)
+                            .transition(.blurReplace)
+                    } else {
+                        subscriptionList(entries)
+                            .transition(.blurReplace)
                     }
                 }
-                .onDelete(perform: deleteItems)
             }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
-                }
-            }
-        } detail: {
-            Text("Select an item")
+            .padding(14)
+        }
+        .frame(width: 340)
+        .environment(\.locale, AppFormat.locale)
+        .onAppear { loginItem.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            loginItem.refresh()
+        }
+        .alert("Couldn’t Save Changes", isPresented: $isShowingPersistenceError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(persistenceErrorMessage)
+        }
+        .alert(
+            "Couldn’t Change Login Item",
+            isPresented: Binding(
+                get: { loginItem.errorMessage != nil },
+                set: { if !$0 { loginItem.errorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(loginItem.errorMessage ?? "")
         }
     }
 
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(timestamp: Date())
-            modelContext.insert(newItem)
+    private func subscriptionList(_ entries: [SubscriptionEntry]) -> some View {
+        ScrollView {
+            VStack(spacing: 10) {
+                ForEach(entries) { entry in
+                    SubscriptionCard(entry: entry)
+                        .contextMenu {
+                            Button("Edit…", systemImage: "pencil") {
+                                editSubscription(entry.subscription)
+                            }
+
+                            Divider()
+
+                            Button("Delete", systemImage: "trash", role: .destructive) {
+                                deleteSubscription(entry.subscription)
+                            }
+                        }
+                        .help("Click to switch the view · Right-click to edit or delete")
+                }
+            }
+        }
+        .scrollIndicators(.never)
+        .scrollEdgeEffectStyle(.soft, for: .vertical)
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxHeight: 460)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func sortedEntries(at date: Date) -> [SubscriptionEntry] {
+        subscriptions
+            .map { SubscriptionEntry(subscription: $0, cycle: SubscriptionCycle(startDate: $0.startDate, now: date)) }
+            .sorted { lhs, rhs in
+                if lhs.cycle.remainingDays != rhs.cycle.remainingDays {
+                    return lhs.cycle.remainingDays < rhs.cycle.remainingDays
+                }
+                return lhs.subscription.name.localizedStandardCompare(rhs.subscription.name) == .orderedAscending
+            }
+    }
+
+    private func addSubscription(name: String, startDate: Date) {
+        let normalizedStartDate = Calendar.current.startOfDay(for: startDate)
+        modelContext.insert(Subscription(name: name, startDate: normalizedStartDate))
+        saveChanges()
+        hideForm()
+    }
+
+    private func updateSubscription(_ subscription: Subscription, name: String, startDate: Date) {
+        subscription.name = name
+        subscription.startDate = Calendar.current.startOfDay(for: startDate)
+        saveChanges()
+        hideForm()
+    }
+
+    private func toggleForm() {
+        withAnimation(.smooth(duration: 0.3)) {
+            route = route == .list ? .add : .list
         }
     }
 
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            for index in offsets {
-                modelContext.delete(items[index])
-            }
+    private func showAddForm() {
+        withAnimation(.smooth(duration: 0.3)) {
+            route = .add
+        }
+    }
+
+    private func editSubscription(_ subscription: Subscription) {
+        withAnimation(.smooth(duration: 0.3)) {
+            route = .edit(subscription)
+        }
+    }
+
+    private func hideForm() {
+        withAnimation(.smooth(duration: 0.3)) {
+            route = .list
+        }
+    }
+
+    private func deleteSubscription(_ subscription: Subscription) {
+        withAnimation(.smooth(duration: 0.3)) {
+            modelContext.delete(subscription)
+        }
+        saveChanges()
+    }
+
+    private func deleteEditedSubscription(_ subscription: Subscription) {
+        // Leave the form first so it never renders a deleted model.
+        hideForm()
+        deleteSubscription(subscription)
+    }
+
+    private func saveChanges() {
+        do {
+            try modelContext.save()
+        } catch {
+            persistenceErrorMessage = error.localizedDescription
+            isShowingPersistenceError = true
         }
     }
 }
 
-#Preview {
+private struct SubscriptionEntry: Identifiable {
+    let subscription: Subscription
+    let cycle: SubscriptionCycle
+
+    var id: UUID { subscription.id }
+}
+
+// MARK: - Header
+
+private struct PanelHeader: View {
+    let nearest: SubscriptionEntry?
+    let count: Int
+    let isShowingForm: Bool
+    let onToggleAdd: () -> Void
+    let loginItem: LoginItemController
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Subscriptions")
+                    .font(.title3.weight(.bold))
+
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .contentTransition(.opacity)
+            }
+
+            Spacer(minLength: 8)
+
+            GlassEffectContainer(spacing: 8) {
+                headerButtons
+            }
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private var headerButtons: some View {
+        HStack(spacing: 8) {
+            Button(
+                isShowingForm ? "Close Form" : "Add Subscription",
+                systemImage: isShowingForm ? "xmark" : "plus",
+                action: onToggleAdd
+            )
+            .labelStyle(.iconOnly)
+            .contentTransition(.symbolEffect(.replace))
+            .keyboardShortcut("n", modifiers: .command)
+            .help(isShowingForm ? "Cancel" : "Add Subscription (⌘N)")
+
+            Menu {
+                Button("Add Subscription", systemImage: "plus", action: onToggleAdd)
+                    .disabled(isShowingForm)
+
+                Divider()
+
+                Toggle("Launch at Login", isOn: Binding(
+                    get: { loginItem.isEnabled },
+                    set: { loginItem.setEnabled($0) }
+                ))
+
+                if loginItem.requiresApproval {
+                    Button("Approve in System Settings…", systemImage: "exclamationmark.triangle") {
+                        loginItem.openLoginItemsSettings()
+                    }
+                }
+
+                Divider()
+
+                Button("Quit", systemImage: "power") {
+                    NSApplication.shared.terminate(nil)
+                }
+                .keyboardShortcut("q", modifiers: .command)
+            } label: {
+                Label("More", systemImage: "ellipsis")
+                    .labelStyle(.iconOnly)
+            }
+            .menuIndicator(.hidden)
+            .help("More")
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .controlSize(.large)
+    }
+
+    private var subtitle: String {
+        guard let nearest else { return "Track renewals every 30 days" }
+
+        let days = nearest.cycle.remainingDays
+        let when = days == 1 ? "tomorrow" : "in \(days) days"
+        return count == 1
+            ? "Renews \(when)"
+            : "Next: \(nearest.subscription.name) \(when)"
+    }
+}
+
+// MARK: - Card
+
+private struct SubscriptionCard: View {
+    let entry: SubscriptionEntry
+
+    @State private var displayMode = CycleDisplayMode.remaining
+
+    private var subscription: Subscription { entry.subscription }
+    private var cycle: SubscriptionCycle { entry.cycle }
+
+    private var isRenewingSoon: Bool { cycle.remainingDays <= 3 }
+
+    private var highlight: Color {
+        switch displayMode {
+        case .remaining: isRenewingSoon ? AppColors.warning : AppColors.accent
+        case .elapsed: AppColors.elapsed
+        }
+    }
+
+    var body: some View {
+        Button {
+            withAnimation(.snappy) {
+                displayMode.toggle()
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(subscription.name)
+                            .font(.headline)
+                            .lineLimit(1)
+
+                        Text(displayMode.detail(for: cycle))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .contentTransition(.opacity)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    dayCounter
+                }
+
+                CycleProgressBar(
+                    fraction: displayMode.fraction(for: cycle),
+                    color: highlight
+                )
+            }
+            .padding(14)
+            .contentShape(.rect(cornerRadius: 20))
+        }
+        .buttonStyle(.plain)
+        .glassEffect(
+            .regular.tint(isRenewingSoon ? AppColors.warning.opacity(0.10) : .clear).interactive(),
+            in: .rect(cornerRadius: 20)
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(subscription.name), \(displayMode.title)")
+        .accessibilityValue(dayText(displayMode.dayCount(for: cycle)))
+        .accessibilityHint("Shows \(displayMode.oppositeTitle.lowercased()) days")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private var dayCounter: some View {
+        let count = displayMode.dayCount(for: cycle)
+
+        return VStack(alignment: .trailing, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text(count, format: .number)
+                    .font(.system(.title, design: .rounded).weight(.bold))
+                    .monospacedDigit()
+                    .contentTransition(.numericText(value: Double(count)))
+
+                Text(count == 1 ? "day" : "days")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .foregroundStyle(highlight)
+
+            Text(displayMode.title.lowercased())
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.tertiary)
+                .contentTransition(.opacity)
+        }
+    }
+
+    private func dayText(_ count: Int) -> String {
+        count == 1 ? "1 day" : "\(count) days"
+    }
+}
+
+private struct CycleProgressBar: View {
+    let fraction: Double
+    let color: Color
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(.white.opacity(0.08))
+
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: [color.opacity(0.75), color],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: max(6, proxy.size.width * min(max(fraction, 0), 1)))
+                    .shadow(color: color.opacity(0.5), radius: 4)
+            }
+        }
+        .frame(height: 6)
+        .animation(.snappy, value: fraction)
+        .accessibilityHidden(true)
+    }
+}
+
+private enum CycleDisplayMode: Equatable {
+    case remaining
+    case elapsed
+
+    var title: String {
+        switch self {
+        case .remaining: "Remaining"
+        case .elapsed: "Elapsed"
+        }
+    }
+
+    var oppositeTitle: String {
+        switch self {
+        case .remaining: "Elapsed"
+        case .elapsed: "Remaining"
+        }
+    }
+
+    mutating func toggle() {
+        self = self == .remaining ? .elapsed : .remaining
+    }
+
+    func dayCount(for cycle: SubscriptionCycle) -> Int {
+        switch self {
+        case .remaining: cycle.remainingDays
+        case .elapsed: cycle.elapsedDays
+        }
+    }
+
+    func fraction(for cycle: SubscriptionCycle) -> Double {
+        switch self {
+        case .remaining: cycle.remainingFraction
+        case .elapsed: cycle.elapsedFraction
+        }
+    }
+
+    func detail(for cycle: SubscriptionCycle) -> String {
+        switch self {
+        case .remaining:
+            "Renews \(cycle.nextRenewal.formatted(AppFormat.shortDate))"
+        case .elapsed:
+            "Cycle started \(cycle.cycleStart.formatted(AppFormat.shortDate))"
+        }
+    }
+}
+
+// MARK: - Empty state
+
+private struct EmptyStateView: View {
+    let onAdd: () -> Void
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "creditcard.and.123")
+                .font(.system(size: 30, weight: .medium))
+                .foregroundStyle(AppColors.accent)
+                .frame(width: 64, height: 64)
+                .glassEffect(.regular.tint(AppColors.accent.opacity(0.18)), in: .circle)
+                .accessibilityHidden(true)
+
+            VStack(spacing: 4) {
+                Text("No Subscriptions")
+                    .font(.headline)
+
+                Text("Add a name and a start date,\nand we’ll count the days to renewal.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Button("Add Subscription", systemImage: "plus", action: onAdd)
+                .buttonStyle(.glassProminent)
+                .tint(AppColors.accent)
+                .controlSize(.large)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+        .padding(.horizontal, 16)
+        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+    }
+}
+
+// MARK: - Add/Edit form
+
+private enum FormMode {
+    case add
+    case edit(name: String, startDate: Date)
+}
+
+private struct SubscriptionFormView: View {
+    @State private var name: String
+    @State private var startDate: Date
+    @FocusState private var isNameFocused: Bool
+
+    let mode: FormMode
+    let onCancel: () -> Void
+    let onSave: (String, Date) -> Void
+    let onDelete: (() -> Void)?
+
+    init(
+        mode: FormMode,
+        onCancel: @escaping () -> Void,
+        onSave: @escaping (String, Date) -> Void,
+        onDelete: (() -> Void)?
+    ) {
+        self.mode = mode
+        self.onCancel = onCancel
+        self.onSave = onSave
+        self.onDelete = onDelete
+
+        switch mode {
+        case .add:
+            _name = State(initialValue: "")
+            _startDate = State(initialValue: .now)
+        case .edit(let name, let startDate):
+            _name = State(initialValue: name)
+            _startDate = State(initialValue: startDate)
+        }
+    }
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var formTitle: String {
+        switch mode {
+        case .add: "New Subscription"
+        case .edit: "Edit Subscription"
+        }
+    }
+
+    private var confirmButtonTitle: String {
+        switch mode {
+        case .add: "Add"
+        case .edit: "Save"
+        }
+    }
+
+    // In edit mode saving is allowed only when something actually changed.
+    private var canSave: Bool {
+        guard !trimmedName.isEmpty else { return false }
+
+        guard case .edit(let originalName, let originalStartDate) = mode else { return true }
+        return trimmedName != originalName
+            || !Calendar.current.isDate(startDate, inSameDayAs: originalStartDate)
+    }
+
+    private var nextRenewal: Date {
+        SubscriptionCycle(startDate: startDate).nextRenewal
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(formTitle)
+                .font(.headline)
+
+            TextField("Name, e.g. Netflix", text: $name)
+                .textFieldStyle(.plain)
+                .font(.body)
+                .focused($isNameFocused)
+                .onSubmit(save)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(.white.opacity(0.07), in: .rect(cornerRadius: 10))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(
+                            isNameFocused ? AppColors.accent.opacity(0.7) : .white.opacity(0.10),
+                            lineWidth: 1
+                        )
+                }
+
+            HStack(spacing: 10) {
+                Label("Start Date", systemImage: "calendar")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+
+                Spacer(minLength: 8)
+
+                DatePicker(
+                    "Start Date",
+                    selection: $startDate,
+                    displayedComponents: .date
+                )
+                .datePickerStyle(.compact)
+                .labelsHidden()
+            }
+            .padding(.leading, 12)
+            .padding(.trailing, 6)
+            .padding(.vertical, 6)
+            .background(.white.opacity(0.07), in: .rect(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(.white.opacity(0.10), lineWidth: 1)
+            }
+
+            Label {
+                Text("Next renewal \(nextRenewal.formatted(AppFormat.longDate))")
+            } icon: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            HStack(spacing: 8) {
+                if let onDelete {
+                    Button("Delete", role: .destructive, action: onDelete)
+                        .buttonStyle(.glass)
+                        .tint(.red)
+                }
+
+                Spacer()
+
+                Button("Cancel", action: onCancel)
+                    .buttonStyle(.glass)
+                    .keyboardShortcut(.cancelAction)
+
+                Button(confirmButtonTitle, action: save)
+                    .buttonStyle(.glassProminent)
+                    .tint(AppColors.accent)
+                    .disabled(!canSave)
+                    .keyboardShortcut(.defaultAction)
+            }
+            .controlSize(.large)
+        }
+        .padding(16)
+        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        .defaultFocus($isNameFocused, true)
+        .task {
+            // Focus set during the insertion transition is dropped; wait for it to settle.
+            try? await Task.sleep(for: .milliseconds(350))
+            isNameFocused = true
+        }
+    }
+
+    private func save() {
+        guard canSave else { return }
+        onSave(trimmedName, startDate)
+    }
+}
+
+// MARK: - Styling
+
+private enum AppFormat {
+    // The interface is English regardless of the system language; keep the user's region for date order.
+    static let locale = Locale(languageCode: .english, languageRegion: Locale.current.region)
+    static let shortDate = Date.FormatStyle.dateTime.day().month(.abbreviated).locale(locale)
+    static let longDate = Date.FormatStyle.dateTime.day().month(.wide).year().locale(locale)
+}
+
+private enum AppColors {
+    static let accent = Color(red: 0.40, green: 0.66, blue: 1)
+    static let elapsed = Color(red: 0.96, green: 0.70, blue: 0.18)
+    static let warning = Color(red: 1.00, green: 0.45, blue: 0.35)
+}
+
+#Preview("List") {
+    let container = try! ModelContainer(
+        for: Subscription.self,
+        configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+    )
+    let calendar = Calendar.current
+    let today = calendar.startOfDay(for: .now)
+    let starts = [-4, -17, -28]
+    let names = ["Netflix", "Spotify", "iCloud+"]
+
+    for (name, offset) in zip(names, starts) {
+        let startDate = calendar.date(byAdding: .day, value: offset, to: today) ?? today
+        container.mainContext.insert(Subscription(name: name, startDate: startDate))
+    }
+
+    return ContentView()
+        .modelContainer(container)
+        .preferredColorScheme(.dark)
+}
+
+#Preview("Empty List") {
     ContentView()
-        .modelContainer(for: Item.self, inMemory: true)
+        .modelContainer(for: Subscription.self, inMemory: true)
+        .preferredColorScheme(.dark)
 }
