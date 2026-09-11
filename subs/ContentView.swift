@@ -20,6 +20,7 @@ struct ContentView: View {
 
     @State private var route: PanelRoute = .list
     @State private var persistenceErrorMessage: String?
+    @State private var pendingDeletion: Subscription?
     @State private var loginItem = LoginItemController()
 
     private var isShowingForm: Bool { route != .list }
@@ -55,6 +56,15 @@ struct ContentView: View {
                     .transition(.blurReplace)
                 }
 
+                if let subscription = pendingDeletion {
+                    DeleteConfirmationBanner(
+                        name: subscription.name,
+                        onCancel: cancelDeletion,
+                        onConfirm: { confirmDeletion(subscription) }
+                    )
+                    .transition(.blurReplace)
+                }
+
                 switch route {
                 case .add:
                     SubscriptionFormView(
@@ -72,7 +82,7 @@ struct ContentView: View {
                         onSave: { name, startDate in
                             updateSubscription(subscription, name: name, startDate: startDate)
                         },
-                        onDelete: { deleteEditedSubscription(subscription) }
+                        onDelete: { requestDeletion(subscription) }
                     )
                     .id(subscription.id.uuidString)
                     .transition(.blurReplace)
@@ -96,6 +106,7 @@ struct ContentView: View {
         }
         .onChange(of: route) {
             persistenceErrorMessage = nil
+            pendingDeletion = nil
         }
     }
 
@@ -112,7 +123,7 @@ struct ContentView: View {
                             Divider()
 
                             Button("Delete", systemImage: "trash", role: .destructive) {
-                                deleteSubscription(entry.subscription)
+                                requestDeletion(entry.subscription)
                             }
                         }
                         .help("Click to switch the view · Right-click to edit or delete")
@@ -174,6 +185,30 @@ struct ContentView: View {
     private func hideForm() {
         withAnimation(.smooth(duration: 0.3)) {
             route = .list
+        }
+    }
+
+    private func requestDeletion(_ subscription: Subscription) {
+        withAnimation(.smooth(duration: 0.3)) {
+            pendingDeletion = subscription
+        }
+    }
+
+    private func cancelDeletion() {
+        withAnimation(.smooth(duration: 0.3)) {
+            pendingDeletion = nil
+        }
+    }
+
+    private func confirmDeletion(_ subscription: Subscription) {
+        // Clear the request first, so the banner never renders a deleted model.
+        withAnimation(.smooth(duration: 0.3)) {
+            pendingDeletion = nil
+        }
+        if route == .edit(subscription) {
+            deleteEditedSubscription(subscription)
+        } else {
+            deleteSubscription(subscription)
         }
     }
 
@@ -580,6 +615,51 @@ private struct ErrorBanner: View {
                 .font(.caption.weight(.bold))
                 .foregroundStyle(.secondary)
                 .help("Dismiss")
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassEffect(.regular.tint(AppColors.warning.opacity(0.15)), in: .rect(cornerRadius: 16))
+        .accessibilityElement(children: .contain)
+    }
+}
+
+// MARK: - Delete confirmation
+
+private struct DeleteConfirmationBanner: View {
+    let name: String
+    let onCancel: () -> Void
+    let onConfirm: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "trash.fill")
+                    .font(.body)
+                    .foregroundStyle(AppColors.warning)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Delete “\(name)”?")
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(2)
+
+                    Text("This can’t be undone.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            HStack(spacing: 8) {
+                Spacer()
+
+                Button("Cancel", action: onCancel)
+                    .buttonStyle(.glass)
+
+                Button("Delete", role: .destructive, action: onConfirm)
+                    .buttonStyle(.glassProminent)
+                    .tint(.red)
+            }
+            .controlSize(.regular)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
