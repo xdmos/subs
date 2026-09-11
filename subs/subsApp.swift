@@ -10,25 +10,21 @@ import SwiftData
 
 @main
 struct subsApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Subscription.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    @State private var persistence = PersistenceController()
 
     var body: some Scene {
         MenuBarExtra("Subscriptions", systemImage: "creditcard.fill") {
-            ContentView()
-                .preferredColorScheme(.dark)
+            Group {
+                switch persistence.state {
+                case .ready(let container):
+                    ContentView()
+                        .modelContainer(container)
+                case .failed(let details):
+                    StoreErrorView(details: details, persistence: persistence)
+                }
+            }
+            .preferredColorScheme(.dark)
         }
         .menuBarExtraStyle(.window)
-        .modelContainer(sharedModelContainer)
     }
 }

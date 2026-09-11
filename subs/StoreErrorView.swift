@@ -1,0 +1,93 @@
+//
+//  StoreErrorView.swift
+//  subs
+//
+
+import AppKit
+import SwiftUI
+
+struct StoreErrorView: View {
+    let details: String
+    let persistence: PersistenceController
+
+    @State private var isConfirmingStartFresh = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.orange)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Couldn’t Open Your Subscriptions")
+                        .font(.headline)
+
+                    Text("The data file can’t be read, so the list can’t be shown.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Text(details)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .lineLimit(4)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if isConfirmingStartFresh {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Start with an empty list? The current data file will be moved to a backup folder next to it, not deleted.")
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    HStack(spacing: 8) {
+                        Spacer()
+
+                        Button("Cancel") {
+                            withAnimation(.smooth(duration: 0.3)) { isConfirmingStartFresh = false }
+                        }
+                        .buttonStyle(.glass)
+
+                        Button("Start Fresh", role: .destructive) {
+                            persistence.startFresh()
+                            isConfirmingStartFresh = false
+                        }
+                        .buttonStyle(.glassProminent)
+                        .tint(.red)
+                    }
+                    .controlSize(.regular)
+                }
+                .transition(.blurReplace)
+            } else {
+                HStack(spacing: 8) {
+                    Button("Quit") {
+                        NSApplication.shared.terminate(nil)
+                    }
+                    .buttonStyle(.glass)
+
+                    Spacer()
+
+                    Button("Show in Finder") {
+                        persistence.revealStoreInFinder()
+                    }
+                    .buttonStyle(.glass)
+
+                    Button("Start Fresh") {
+                        withAnimation(.smooth(duration: 0.3)) { isConfirmingStartFresh = true }
+                    }
+                    .buttonStyle(.glassProminent)
+                }
+                .controlSize(.regular)
+                .transition(.blurReplace)
+            }
+        }
+        .padding(16)
+        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        .frame(width: 340)
+        .padding(14)
+    }
+}
