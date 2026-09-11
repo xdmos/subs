@@ -15,10 +15,17 @@ It shows how many days are left until each renewal, with a Liquid Glass interfac
 - Sorted by the nearest renewal; cards renewing within 3 days are highlighted.
   On the renewal day a card says *Renews today*; a subscription with a future start date
   counts down the days until it starts.
-- Add, edit (right-click → Edit…) and delete subscriptions.
-- Launch at Login, from the `⋯` menu.
+- Add (`⌘N`), edit (right-click → Edit…) and delete subscriptions. Deleting asks for
+  confirmation inside the panel.
+- Launch at Login, from the `⋯` menu, with a shortcut to System Settings when macOS
+  asks for approval.
+- If saving fails, for example on a full disk, the change is undone and the error is shown
+  in the panel.
+- If the data file can't be opened, the panel says so instead of crashing. *Start Fresh*
+  moves the unreadable file to a backup folder next to it, never deleting it, and
+  *Show in Finder* reveals it.
+- English interface; dates follow your region's format.
 - Light and dark app icon.
-- Data is stored locally with SwiftData.
 
 ## Requirements
 
@@ -34,10 +41,16 @@ It shows how many days are left until each renewal, with a Liquid Glass interfac
 To install, build the Release configuration and copy `subs.app` to `/Applications`.
 Launch at Login is meant to be used from there.
 
+## Privacy
+
+- Data is stored locally with SwiftData and never leaves your Mac.
+- No networking, accounts, telemetry, or analytics.
+- Built with the Hardened Runtime.
+
 ## Tests
 
-The renewal cycle logic lives in the local Swift package `Packages/SubsCore`, with unit tests
-written in Swift Testing. They run without launching the app:
+The renewal cycle and store backup logic have unit tests written in Swift Testing. They run
+without launching the app:
 
 ```bash
 swift test --package-path Packages/SubsCore
