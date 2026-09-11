@@ -138,15 +138,17 @@ struct ContentView: View {
     private func addSubscription(name: String, startDate: Date) {
         let normalizedStartDate = Calendar.current.startOfDay(for: startDate)
         modelContext.insert(Subscription(name: name, startDate: normalizedStartDate))
-        saveChanges()
-        hideForm()
+        if saveChanges() {
+            hideForm()
+        }
     }
 
     private func updateSubscription(_ subscription: Subscription, name: String, startDate: Date) {
         subscription.name = name
         subscription.startDate = Calendar.current.startOfDay(for: startDate)
-        saveChanges()
-        hideForm()
+        if saveChanges() {
+            hideForm()
+        }
     }
 
     private func toggleForm() {
@@ -181,17 +183,26 @@ struct ContentView: View {
     }
 
     private func deleteEditedSubscription(_ subscription: Subscription) {
-        // Leave the form first so it never renders a deleted model.
-        hideForm()
-        deleteSubscription(subscription)
+        modelContext.delete(subscription)
+        // Leave the form in the same update as a successful save, so it never
+        // renders a deleted model; a failed save restores the model and keeps the form.
+        if saveChanges() {
+            hideForm()
+        }
     }
 
-    private func saveChanges() {
+    /// Saves pending changes. On failure the unsaved changes are rolled back, so the
+    /// list keeps showing what is actually stored, and the error is presented.
+    @discardableResult
+    private func saveChanges() -> Bool {
         do {
             try modelContext.save()
+            return true
         } catch {
+            modelContext.rollback()
             persistenceErrorMessage = error.localizedDescription
             isShowingPersistenceError = true
+            return false
         }
     }
 }
