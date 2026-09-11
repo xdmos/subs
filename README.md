@@ -31,3 +31,7 @@ It shows how many days are left until each renewal, with a Liquid Glass interfac
 
 To install, build the Release configuration and copy `subs.app` to `/Applications`.
 Launch at Login is meant to be used from there.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
