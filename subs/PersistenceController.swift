@@ -15,13 +15,15 @@ import SwiftData
 final class PersistenceController {
     enum State {
         case ready(ModelContainer)
-        case failed(details: String)     // error.localizedDescription of the last failure
+        case failed(details: String)            // the subs store can't be used; Start Fresh is offered
+        case migrationFailed(details: String)   // copying from the legacy store failed; Start Fresh is NOT offered
     }
 
     private static let logger = Logger(subsystem: "pl.glasek.subs", category: "persistence")
 
     private(set) var state: State
     let storeURL: URL
+    let legacyStoreURL: URL
 
     // Kept so startFresh() can reopen a store with the exact same schema and configuration.
     private let schema: Schema
@@ -29,17 +31,42 @@ final class PersistenceController {
 
     init() {
         let schema = Schema([Subscription.self])
-        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        // SwiftData's default configuration stores data in the shared
+        // "default.store", which every non-sandboxed SwiftData app that sticks
+        // to the defaults uses. Give subs its own store file instead; on first
+        // launch the subscriptions are copied over from the legacy file, which
+        // is left untouched.
+        let applicationSupport = URL.applicationSupportDirectory
+        let storeDirectory = applicationSupport.appending(path: "pl.glasek.subs", directoryHint: .isDirectory)
+        storeURL = storeDirectory.appending(path: "subs.store")
+        legacyStoreURL = applicationSupport.appending(path: "default.store")
+        let configuration = ModelConfiguration(schema: schema, url: storeURL)
         self.schema = schema
         self.configuration = configuration
-        storeURL = configuration.url
 
+        // load() always replaces this synchronously before init returns.
+        state = .failed(details: "")
+        load()
+    }
+
+    private func load() {
         // A -wal or -shm file without the main store file means a previous relocation
         // never finished. Opening now could pair a fresh database with the old sidecars,
         // so report it and touch nothing instead.
         if StoreBackup.hasOrphanedSidecars(storeURL: storeURL) {
             Self.logger.error("Leftover database files without the main data file at \(self.storeURL.path, privacy: .public)")
             state = .failed(details: "Leftover database files were found without the main data file. Nothing was opened or changed.")
+            return
+        }
+
+        do {
+            let outcome = try StoreMigration.migrateIfNeeded(legacyStoreURL: legacyStoreURL, storeURL: storeURL)
+            Self.logger.info("Store migration outcome: \(String(describing: outcome), privacy: .public)")
+        } catch {
+            // Never open a container after a failed migration: an empty new store
+            // would make the next launch skip the migration and hide the user's data.
+            Self.logger.error("Failed to copy the subscriptions from the previous data file: \(String(describing: error), privacy: .public)")
+            state = .migrationFailed(details: "Couldn’t copy your subscriptions from the previous data file: \(error.localizedDescription)")
             return
         }
 
@@ -51,12 +78,16 @@ final class PersistenceController {
         }
     }
 
-    /// Moves the unreadable store files into a backup folder next to them and opens a new
-    /// empty store. Files are only ever moved, never deleted: this code must not be able to
-    /// destroy user data, and the move happens only after the user confirms it. A move that
-    /// fails part-way is rolled back, so the store is never left half-moved.
+    /// Moves the unreadable store files into a backup folder next to them and runs the
+    /// normal launch sequence on the emptied spot. Files are only ever moved, never
+    /// deleted: this code must not be able to destroy user data, and the move happens
+    /// only after the user confirms it. A move that fails part-way is rolled back, so
+    /// the store is never left half-moved. The fresh start still honours the one-time
+    /// migration, so it can never hide subscriptions that only exist in the legacy file.
     func startFresh() {
-        // Never touch a store that opened fine.
+        // Never touch a store that opened fine, and never touch anything after
+        // a failed migration: the subscriptions still live only in the legacy
+        // file, and an empty new store would hide them.
         guard case .failed = state else { return }
 
         do {
@@ -67,12 +98,19 @@ final class PersistenceController {
             return
         }
 
-        do {
-            state = .ready(try ModelContainer(for: schema, configurations: [configuration]))
-        } catch {
-            Self.logger.error("Failed to open a fresh store: \(String(describing: error), privacy: .public)")
-            state = .failed(details: error.localizedDescription)
-        }
+        // The normal launch sequence, not a directly opened container: the
+        // orphan guard and the one-time migration still decide what may be
+        // opened, so subscriptions that only live in the legacy file are
+        // migrated instead of being left behind an empty new store.
+        load()
+    }
+
+    /// Runs the launch sequence again after a failed migration. The legacy
+    /// files are only ever read, so a retry can succeed or fail again — it can
+    /// never lose data.
+    func retryMigration() {
+        guard case .migrationFailed = state else { return }
+        load()
     }
 
     func revealStoreInFinder() {
@@ -80,6 +118,14 @@ final class PersistenceController {
             NSWorkspace.shared.activateFileViewerSelecting([storeURL])
         } else {
             NSWorkspace.shared.open(storeURL.deletingLastPathComponent())
+        }
+    }
+
+    func revealLegacyStoreInFinder() {
+        if FileManager.default.fileExists(atPath: legacyStoreURL.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([legacyStoreURL])
+        } else {
+            NSWorkspace.shared.open(legacyStoreURL.deletingLastPathComponent())
         }
     }
 }

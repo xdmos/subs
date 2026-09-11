@@ -20,7 +20,9 @@ struct subsApp: App {
                     ContentView()
                         .modelContainer(container)
                 case .failed(let details):
-                    StoreErrorView(details: details, persistence: persistence)
+                    StoreErrorView(details: details, recovery: .startFresh, persistence: persistence)
+                case .migrationFailed(let details):
+                    StoreErrorView(details: details, recovery: .retryMigration, persistence: persistence)
                 }
             }
             .preferredColorScheme(.dark)
