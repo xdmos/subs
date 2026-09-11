@@ -19,8 +19,7 @@ struct ContentView: View {
     @Query(sort: \Subscription.startDate, order: .reverse) private var subscriptions: [Subscription]
 
     @State private var route: PanelRoute = .list
-    @State private var isShowingPersistenceError = false
-    @State private var persistenceErrorMessage = ""
+    @State private var persistenceErrorMessage: String?
     @State private var loginItem = LoginItemController()
 
     private var isShowingForm: Bool { route != .list }
@@ -39,6 +38,22 @@ struct ContentView: View {
                     onToggleAdd: toggleForm,
                     loginItem: loginItem
                 )
+
+                // Errors are shown inside the panel: an alert opens its own window,
+                // and clicking it dismisses the menu bar panel instead of the alert.
+                if let message = persistenceErrorMessage {
+                    ErrorBanner(title: "Couldn’t Save Changes", message: message) {
+                        withAnimation(.smooth(duration: 0.3)) { persistenceErrorMessage = nil }
+                    }
+                    .transition(.blurReplace)
+                }
+
+                if let message = loginItem.errorMessage {
+                    ErrorBanner(title: "Couldn’t Change Login Item", message: message) {
+                        withAnimation(.smooth(duration: 0.3)) { loginItem.errorMessage = nil }
+                    }
+                    .transition(.blurReplace)
+                }
 
                 switch route {
                 case .add:
@@ -79,21 +94,8 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
             loginItem.refresh()
         }
-        .alert("Couldn’t Save Changes", isPresented: $isShowingPersistenceError) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(persistenceErrorMessage)
-        }
-        .alert(
-            "Couldn’t Change Login Item",
-            isPresented: Binding(
-                get: { loginItem.errorMessage != nil },
-                set: { if !$0 { loginItem.errorMessage = nil } }
-            )
-        ) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(loginItem.errorMessage ?? "")
+        .onChange(of: route) {
+            persistenceErrorMessage = nil
         }
     }
 
@@ -197,13 +199,24 @@ struct ContentView: View {
     private func saveChanges() -> Bool {
         do {
             try modelContext.save()
+            persistenceErrorMessage = nil
             return true
         } catch {
             modelContext.rollback()
-            persistenceErrorMessage = error.localizedDescription
-            isShowingPersistenceError = true
+            withAnimation(.smooth(duration: 0.3)) {
+                persistenceErrorMessage = Self.message(for: error)
+            }
             return false
         }
+    }
+
+    private static func message(for error: Error) -> String {
+        let nsError = error as NSError
+        // SQLITE_FULL: the store could not grow.
+        if nsError.domain == "NSSQLiteErrorDomain", nsError.code == 13 {
+            return "Your disk is full. Free up some space and try again."
+        }
+        return error.localizedDescription
     }
 }
 
@@ -532,6 +545,46 @@ private enum CycleDisplayMode: Equatable {
         case .elapsed:
             return "Cycle started \(cycle.cycleStart.formatted(AppFormat.shortDate))"
         }
+    }
+}
+
+// MARK: - Error banner
+
+private struct ErrorBanner: View {
+    let title: String
+    let message: String
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.body)
+                .foregroundStyle(AppColors.warning)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 4)
+
+            Button("Dismiss", systemImage: "xmark", action: onDismiss)
+                .labelStyle(.iconOnly)
+                .buttonStyle(.plain)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.secondary)
+                .help("Dismiss")
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassEffect(.regular.tint(AppColors.warning.opacity(0.15)), in: .rect(cornerRadius: 16))
+        .accessibilityElement(children: .contain)
     }
 }
 
