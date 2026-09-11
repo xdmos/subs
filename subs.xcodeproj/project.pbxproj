@@ -6,6 +6,10 @@
 	objectVersion = 110;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		FADD8611305436FF00E14E72 /* SubsCore in Frameworks */ = {isa = PBXBuildFile; productRef = FADD8612305436FF00E14E72 /* SubsCore */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		FADD85F6305436FD00E14E72 /* subs.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = subs.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -22,6 +26,7 @@
 		FADD85F3305436FD00E14E72 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				FADD8611305436FF00E14E72 /* SubsCore in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -60,6 +65,9 @@
 				FADD85F8305436FD00E14E72 /* subs */,
 			);
 			name = subs;
+			packageProductDependencies = (
+				FADD8612305436FF00E14E72 /* SubsCore */,
+			);
 			productName = subs;
 			productReference = FADD85F6305436FD00E14E72 /* subs.app */;
 			productType = "com.apple.product-type.application";
@@ -88,6 +96,9 @@
 			);
 			mainGroup = FADD85ED305436FD00E14E72;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				FADD8613305436FF00E14E72 /* XCLocalSwiftPackageReference "Packages/SubsCore" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = FADD85F7305436FD00E14E72 /* Products */;
 			projectDirPath = "";
@@ -314,6 +325,20 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		FADD8613305436FF00E14E72 /* XCLocalSwiftPackageReference "Packages/SubsCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/SubsCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		FADD8612305436FF00E14E72 /* SubsCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SubsCore;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = FADD85EE305436FD00E14E72 /* Project object */;
 	validationLevel = 1;

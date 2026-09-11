@@ -10,3 +10,7 @@ xcuserdata/
 build/
 DerivedData/
 *.xcarchive
+
+# Swift Package Manager
+.build/
+.swiftpm/

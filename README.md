@@ -13,6 +13,8 @@ It shows how many days are left until each renewal, with a Liquid Glass interfac
 - Each subscription shows the days remaining in its current 30-day cycle and a progress bar.
   Click a card to switch between days remaining and days elapsed.
 - Sorted by the nearest renewal; cards renewing within 3 days are highlighted.
+  On the renewal day a card says *Renews today*; a subscription with a future start date
+  counts down the days until it starts.
 - Add, edit (right-click → Edit…) and delete subscriptions.
 - Launch at Login, from the `⋯` menu.
 - Light and dark app icon.
@@ -31,6 +33,15 @@ It shows how many days are left until each renewal, with a Liquid Glass interfac
 
 To install, build the Release configuration and copy `subs.app` to `/Applications`.
 Launch at Login is meant to be used from there.
+
+## Tests
+
+The renewal cycle logic lives in the local Swift package `Packages/SubsCore`, with unit tests
+written in Swift Testing. They run without launching the app:
+
+```bash
+swift test --package-path Packages/SubsCore
+```
 
 ## License
 

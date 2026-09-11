@@ -4,6 +4,7 @@
 //
 
 import AppKit
+import SubsCore
 import SwiftData
 import SwiftUI
 
@@ -127,8 +128,8 @@ struct ContentView: View {
         subscriptions
             .map { SubscriptionEntry(subscription: $0, cycle: SubscriptionCycle(startDate: $0.startDate, now: date)) }
             .sorted { lhs, rhs in
-                if lhs.cycle.remainingDays != rhs.cycle.remainingDays {
-                    return lhs.cycle.remainingDays < rhs.cycle.remainingDays
+                if lhs.cycle.daysUntilNextEvent != rhs.cycle.daysUntilNextEvent {
+                    return lhs.cycle.daysUntilNextEvent < rhs.cycle.daysUntilNextEvent
                 }
                 return lhs.subscription.name.localizedStandardCompare(rhs.subscription.name) == .orderedAscending
             }
@@ -283,11 +284,29 @@ private struct PanelHeader: View {
     private var subtitle: String {
         guard let nearest else { return "Track renewals every 30 days" }
 
-        let days = nearest.cycle.remainingDays
-        let when = days == 1 ? "tomorrow" : "in \(days) days"
-        return count == 1
-            ? "Renews \(when)"
-            : "Next: \(nearest.subscription.name) \(when)"
+        let cycle = nearest.cycle
+        let days = cycle.daysUntilNextEvent
+        let name = nearest.subscription.name
+
+        if count == 1 {
+            switch cycle.phase {
+            case .renewalDay:
+                return "Renews today"
+            case .active:
+                return days == 1 ? "Renews tomorrow" : "Renews in \(days) days"
+            case .upcoming:
+                return days == 1 ? "Starts tomorrow" : "Starts in \(days) days"
+            }
+        }
+
+        switch cycle.phase {
+        case .renewalDay:
+            return "Next: \(name) renews today"
+        case .active:
+            return "Next: \(name) \(days == 1 ? "tomorrow" : "in \(days) days")"
+        case .upcoming:
+            return "Next: \(name) \(days == 1 ? "starts tomorrow" : "starts in \(days) days")"
+        }
     }
 }
 
@@ -301,7 +320,7 @@ private struct SubscriptionCard: View {
     private var subscription: Subscription { entry.subscription }
     private var cycle: SubscriptionCycle { entry.cycle }
 
-    private var isRenewingSoon: Bool { cycle.remainingDays <= 3 }
+    private var isRenewingSoon: Bool { cycle.phase != .upcoming && cycle.remainingDays <= 3 }
 
     private var highlight: Color {
         switch displayMode {
@@ -336,8 +355,8 @@ private struct SubscriptionCard: View {
                 }
 
                 CycleProgressBar(
-                    fraction: displayMode.fraction(for: cycle),
-                    color: highlight
+                    fraction: cycle.phase == .upcoming ? 0 : displayMode.fraction(for: cycle),
+                    color: cycle.phase == .upcoming ? AppColors.accent : highlight
                 )
             }
             .padding(14)
@@ -349,33 +368,75 @@ private struct SubscriptionCard: View {
             in: .rect(cornerRadius: 20)
         )
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(subscription.name), \(displayMode.title)")
-        .accessibilityValue(dayText(displayMode.dayCount(for: cycle)))
-        .accessibilityHint("Shows \(displayMode.oppositeTitle.lowercased()) days")
+        .accessibilityLabel(cardAccessibilityLabel)
+        .accessibilityValue(cardAccessibilityValue)
+        .accessibilityHint(cardAccessibilityHint)
         .accessibilityAddTraits(.isButton)
     }
 
     private var dayCounter: some View {
-        let count = displayMode.dayCount(for: cycle)
+        let isUpcoming = cycle.phase == .upcoming
+        let count = isUpcoming ? cycle.daysUntilStart : displayMode.dayCount(for: cycle)
 
         return VStack(alignment: .trailing, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text(count, format: .number)
-                    .font(.system(.title, design: .rounded).weight(.bold))
-                    .monospacedDigit()
-                    .contentTransition(.numericText(value: Double(count)))
+                if showsRenewalToday {
+                    Text("Today")
+                        .font(.system(.title, design: .rounded).weight(.bold))
+                } else {
+                    Text(count, format: .number)
+                        .font(.system(.title, design: .rounded).weight(.bold))
+                        .monospacedDigit()
+                        .contentTransition(.numericText(value: Double(count)))
 
-                Text(count == 1 ? "day" : "days")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    Text(count == 1 ? "day" : "days")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
             }
-            .foregroundStyle(highlight)
+            .foregroundStyle(isUpcoming ? AppColors.accent : highlight)
 
-            Text(displayMode.title.lowercased())
+            Text(dayCounterCaption)
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(.tertiary)
                 .contentTransition(.opacity)
         }
+    }
+
+    // On the renewal day the cycle has run out, so the counter says "Today"
+    // instead of a zero that would read like an expired subscription.
+    private var showsRenewalToday: Bool {
+        cycle.phase == .renewalDay && displayMode == .remaining
+    }
+
+    private var dayCounterCaption: String {
+        switch cycle.phase {
+        case .upcoming: "until start"
+        case .renewalDay where displayMode == .remaining: "renews"
+        case .active, .renewalDay: displayMode.title.lowercased()
+        }
+    }
+
+    private var cardAccessibilityLabel: String {
+        if cycle.phase == .upcoming {
+            return "\(subscription.name), starts \(cycle.startDate.formatted(AppFormat.shortDate))"
+        }
+        return "\(subscription.name), \(displayMode.title)"
+    }
+
+    private var cardAccessibilityValue: String {
+        switch cycle.phase {
+        case .upcoming:
+            return "\(dayText(cycle.daysUntilStart)) until start"
+        case .renewalDay where displayMode == .remaining:
+            return "Renews today"
+        default:
+            return dayText(displayMode.dayCount(for: cycle))
+        }
+    }
+
+    private var cardAccessibilityHint: String {
+        cycle.phase == .upcoming ? "" : "Shows \(displayMode.oppositeTitle.lowercased()) days"
     }
 
     private func dayText(_ count: Int) -> String {
@@ -448,11 +509,17 @@ private enum CycleDisplayMode: Equatable {
     }
 
     func detail(for cycle: SubscriptionCycle) -> String {
+        if cycle.phase == .upcoming {
+            return "Starts \(cycle.startDate.formatted(AppFormat.shortDate))"
+        }
+        if cycle.phase == .renewalDay && self == .remaining {
+            return "Renews today"
+        }
         switch self {
         case .remaining:
-            "Renews \(cycle.nextRenewal.formatted(AppFormat.shortDate))"
+            return "Renews \(cycle.nextRenewal.formatted(AppFormat.shortDate))"
         case .elapsed:
-            "Cycle started \(cycle.cycleStart.formatted(AppFormat.shortDate))"
+            return "Cycle started \(cycle.cycleStart.formatted(AppFormat.shortDate))"
         }
     }
 }
