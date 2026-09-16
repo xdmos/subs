@@ -21,6 +21,10 @@ It shows how many days are left until each renewal, with a Liquid Glass interfac
   and `Import JSON…` validates the whole file, saves a copy of the current data to
   the `Import Backups` folder next to the data file, and only then replaces the list —
   so a bad file never changes anything and the previous data can always be imported back.
+- Keeps an automatic, private recovery snapshot in iCloud Drive after every successful
+  change. A fresh installation restores that snapshot automatically; an existing local
+  database is never replaced without confirmation. `⋯ → Restore from iCloud…` provides
+  a manual recovery path.
 - Launch at Login, from the `⋯` menu, with a shortcut to System Settings when macOS
   asks for approval.
 - If saving fails, for example on a full disk, the change is undone and the error is shown
@@ -40,15 +44,20 @@ It shows how many days are left until each renewal, with a Liquid Glass interfac
 
 1. Open `subs.xcodeproj` in Xcode.
 2. Under *Signing & Capabilities*, select your own development team.
-3. Build and run the `subs` scheme.
+3. Enable iCloud Documents for the `iCloud.pl.glasek.subs` container, or replace that
+   container identifier in `subs/subs.entitlements` with one owned by your team.
+4. Build and run the `subs` scheme.
 
 To install, build the Release configuration and copy `subs.app` to `/Applications`.
 Launch at Login is meant to be used from there.
 
 ## Privacy
 
-- Data is stored locally with SwiftData and never leaves your Mac.
-- No networking, accounts, telemetry, or analytics.
+- Data is stored locally with SwiftData. A versioned recovery snapshot is stored in the
+  app's private iCloud Drive container in your Apple account.
+- Recovery requires the same Apple account with iCloud Drive enabled. Signing out of
+  iCloud or deleting the app's data from iCloud makes that recovery copy unavailable.
+- No third-party networking, app account, telemetry, or analytics.
 - Built with the Hardened Runtime.
 
 ## License

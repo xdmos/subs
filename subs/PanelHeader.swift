@@ -17,6 +17,7 @@ struct PanelHeader: View {
     let onToggleAdd: () -> Void
     let onExport: () -> Void
     let onImport: () -> Void
+    let onRestoreFromCloud: () -> Void
     let loginItem: LoginItemController
 
     var body: some View {
@@ -62,6 +63,9 @@ struct PanelHeader: View {
                 Button("Export JSON…", systemImage: "square.and.arrow.up", action: onExport)
 
                 Button("Import JSON…", systemImage: "square.and.arrow.down", action: onImport)
+                    .disabled(!isImportEnabled)
+
+                Button("Restore from iCloud…", systemImage: "icloud.and.arrow.down", action: onRestoreFromCloud)
                     .disabled(!isImportEnabled)
 
                 Divider()

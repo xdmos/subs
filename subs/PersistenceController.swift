@@ -22,6 +22,7 @@ final class PersistenceController {
     private static let logger = Logger(subsystem: "pl.glasek.subs", category: "persistence")
 
     private(set) var state: State
+    private(set) var automaticCloudRestoreEligible = false
     let storeURL: URL
     let legacyStoreURL: URL
 
@@ -71,6 +72,10 @@ final class PersistenceController {
     }
 
     private func load() {
+        automaticCloudRestoreEligible = false
+        let hadAppStore = StoreBackup.storeFileURLs(for: storeURL).contains {
+            FileManager.default.fileExists(atPath: $0.path)
+        }
         // A -wal or -shm file without the main store file means a previous relocation
         // never finished. Opening now could pair a fresh database with the old sidecars,
         // so report it and touch nothing instead.
@@ -83,6 +88,10 @@ final class PersistenceController {
         do {
             let outcome = try StoreMigration.migrateIfNeeded(legacyStoreURL: legacyStoreURL, storeURL: storeURL)
             Self.logger.info("Store migration outcome: \(String(describing: outcome), privacy: .public)")
+            automaticCloudRestoreEligible = CloudRestorePolicy.shouldAutomaticallyRestore(
+                hadAppStore: hadAppStore,
+                migrationOutcome: outcome
+            )
         } catch {
             // Never open a container after a failed migration: an empty new store
             // would make the next launch skip the migration and hide the user's data.
@@ -97,6 +106,24 @@ final class PersistenceController {
             Self.logger.error("Failed to open the store: \(String(describing: error), privacy: .public)")
             state = .failed(details: error.localizedDescription)
         }
+    }
+
+    func prepareCloudBackup(using cloudBackup: CloudBackupController) async {
+        guard case .ready(let container) = state else { return }
+
+        if automaticCloudRestoreEligible {
+            automaticCloudRestoreEligible = false
+            do {
+                if let records = try await cloudBackup.loadRestoreRecords() {
+                    try SubscriptionLibrary.replaceAll(in: container, with: records)
+                }
+            } catch {
+                cloudBackup.reportRestoreFailure(error)
+                return
+            }
+        }
+
+        cloudBackup.backup(container: container)
     }
 
     /// Moves the unreadable store files into a backup folder next to them and runs the

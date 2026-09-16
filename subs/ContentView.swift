@@ -19,6 +19,7 @@ struct ContentView: View {
     @Query(sort: \Subscription.startDate, order: .reverse) private var subscriptions: [Subscription]
 
     let transfer: DataTransferController
+    let cloudBackup: CloudBackupController
     let backupDirectory: URL
 
     @State private var route: PanelRoute = .list
@@ -43,6 +44,9 @@ struct ContentView: View {
                     onToggleAdd: toggleForm,
                     onExport: { transfer.exportJSON(container: modelContext.container) },
                     onImport: { transfer.chooseImportFile(container: modelContext.container) },
+                    onRestoreFromCloud: {
+                        transfer.chooseCloudRestore(container: modelContext.container, cloudBackup: cloudBackup)
+                    },
                     loginItem: loginItem
                 )
 
@@ -58,6 +62,13 @@ struct ContentView: View {
                 if let message = loginItem.errorMessage {
                     ErrorBanner(title: "Couldn’t Change Login Item", message: message) {
                         withAnimation(.smooth(duration: 0.3)) { loginItem.errorMessage = nil }
+                    }
+                    .transition(.blurReplace)
+                }
+
+                if let message = cloudBackup.errorMessage {
+                    ErrorBanner(title: "iCloud Backup Needs Attention", message: message) {
+                        withAnimation(.smooth(duration: 0.3)) { cloudBackup.dismissError() }
                     }
                     .transition(.blurReplace)
                 }
@@ -89,7 +100,12 @@ struct ContentView: View {
                         onCancel: { withAnimation(.smooth(duration: 0.3)) { transfer.cancelImport() } },
                         onConfirm: {
                             withAnimation(.smooth(duration: 0.3)) {
-                                transfer.confirmImport(container: modelContext.container, backupDirectory: backupDirectory)
+                                if transfer.confirmImport(
+                                    container: modelContext.container,
+                                    backupDirectory: backupDirectory
+                                ) {
+                                    cloudBackup.backup(container: modelContext.container)
+                                }
                             }
                         }
                     )
@@ -282,6 +298,7 @@ struct ContentView: View {
         do {
             try modelContext.save()
             persistenceErrorMessage = nil
+            cloudBackup.backup(container: modelContext.container)
             return true
         } catch {
             modelContext.rollback()
@@ -317,6 +334,7 @@ struct SubscriptionEntry: Identifiable {
 
     return ContentView(
         transfer: DataTransferController(),
+        cloudBackup: CloudBackupController(arguments: ["subs", "-SubsICloudDirectory", FileManager.default.temporaryDirectory.path]),
         backupDirectory: FileManager.default.temporaryDirectory
     )
     .modelContainer(container)
@@ -326,6 +344,7 @@ struct SubscriptionEntry: Identifiable {
 #Preview("Empty List") {
     ContentView(
         transfer: DataTransferController(),
+        cloudBackup: CloudBackupController(arguments: ["subs", "-SubsICloudDirectory", FileManager.default.temporaryDirectory.path]),
         backupDirectory: FileManager.default.temporaryDirectory
     )
     .modelContainer(for: Subscription.self, inMemory: true)

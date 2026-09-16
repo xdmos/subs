@@ -81,8 +81,28 @@ final class DataTransferController {
         }
     }
 
-    func confirmImport(container: ModelContainer, backupDirectory: URL) {
-        guard let pending = pendingImport else { return }
+    func chooseCloudRestore(container: ModelContainer, cloudBackup: CloudBackupController) {
+        Task {
+            do {
+                guard let records = try await cloudBackup.loadRestoreRecords() else {
+                    banner = .failure(title: "No iCloud Backup", message: "No subscriptions backup was found in iCloud.")
+                    return
+                }
+                let currentCount = try SubscriptionLibrary.records(in: container).count
+                pendingImport = PendingImport(
+                    fileName: "iCloud backup",
+                    records: records,
+                    currentCount: currentCount
+                )
+            } catch {
+                banner = .failure(title: "Couldn’t Restore from iCloud", message: error.localizedDescription)
+            }
+        }
+    }
+
+    @discardableResult
+    func confirmImport(container: ModelContainer, backupDirectory: URL) -> Bool {
+        guard let pending = pendingImport else { return false }
         do {
             let result = try SubscriptionLibrary.importReplacingAll(
                 pending.records, in: container, backupDirectory: backupDirectory
@@ -93,6 +113,7 @@ final class DataTransferController {
                 message: "The previous list was saved to “\(result.backupURL.lastPathComponent)”.",
                 action: BannerAction(title: "Show Backup", url: result.backupURL)
             )
+            return true
         } catch let error as SubscriptionLibraryError {
             switch error {
             case let .backupFailed(underlying):
@@ -103,6 +124,7 @@ final class DataTransferController {
         } catch {
             failImport("Nothing was changed. \(Self.saveMessage(for: error))")
         }
+        return false
     }
 
     func cancelImport() {
