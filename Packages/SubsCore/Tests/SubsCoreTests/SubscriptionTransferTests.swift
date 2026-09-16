@@ -82,6 +82,31 @@ struct SubscriptionTransferTests {
         #expect(byID(decoded) == byID(records))
     }
 
+    @Test func rejectsOversizedDataAndFiles() throws {
+        let oversized = Data(repeating: 0x20, count: SubscriptionTransfer.maxFileSize + 1)
+        #expect(throws: SubscriptionTransferError.fileTooLarge) {
+            try SubscriptionTransfer.decode(oversized)
+        }
+
+        let url = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        try oversized.write(to: url)
+        #expect(throws: SubscriptionTransferError.fileTooLarge) {
+            try SubscriptionTransfer.decode(contentsOf: url)
+        }
+    }
+
+    @Test func refusesToCreateAnExportThatCannotBeImported() throws {
+        let huge = SubscriptionRecord(
+            id: UUID(),
+            name: String(repeating: "x", count: SubscriptionTransfer.maxFileSize),
+            startDay: CalendarDay(year: 2026, month: 1, day: 1)
+        )
+        #expect(throws: SubscriptionTransferError.fileTooLarge) {
+            try SubscriptionTransfer.encode([huge], exportedAt: exportedAt)
+        }
+    }
+
     private func byID(_ records: [SubscriptionRecord]) -> [SubscriptionRecord] {
         records.sorted { $0.id.uuidString < $1.id.uuidString }
     }

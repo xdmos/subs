@@ -68,6 +68,7 @@ public enum SubscriptionTransferError: Error, Equatable, Sendable, LocalizedErro
     }
 
     case notValidJSON
+    case fileTooLarge
     case notASubsExport
     case missingVersion
     case unsupportedVersion(Int)
@@ -80,6 +81,8 @@ public enum SubscriptionTransferError: Error, Equatable, Sendable, LocalizedErro
 
     public var errorDescription: String? {
         switch self {
+        case .fileTooLarge:
+            "The file is too large to be a subs export."
         case .notValidJSON:
             "The file isn’t valid JSON."
         case .notASubsExport:
@@ -114,6 +117,14 @@ public enum SubscriptionTransfer {
     /// Files larger than this are rejected before being read into memory.
     public static let maxFileSize = 5_000_000
 
+    /// Transfer dates are always Gregorian calendar days. The time zone stays
+    /// local so an existing stored midnight remains the same day for the user.
+    public static func gregorianCalendar(timeZone: TimeZone = .current) -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return calendar
+    }
+
     // MARK: - Encoding
 
     /// Encodes records as format version 1. Records are sorted by start day,
@@ -133,7 +144,9 @@ public enum SubscriptionTransfer {
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        return try encoder.encode(file)
+        let data = try encoder.encode(file)
+        guard data.count <= maxFileSize else { throw SubscriptionTransferError.fileTooLarge }
+        return data
     }
 
     private struct ExportFile: Encodable {
@@ -156,6 +169,7 @@ public enum SubscriptionTransfer {
     /// older builds reading the file; a changed meaning of existing fields
     /// requires version 2 instead.
     public static func decode(_ data: Data) throws -> [SubscriptionRecord] {
+        guard data.count <= maxFileSize else { throw SubscriptionTransferError.fileTooLarge }
         let decoder = JSONDecoder()
 
         // The header is validated before any record is looked at, so a file
@@ -182,6 +196,16 @@ public enum SubscriptionTransfer {
             throw SubscriptionTransferError.missingSubscriptions
         }
         return try validated(records)
+    }
+
+    /// Reads at most one byte beyond the supported limit, so a stale or
+    /// unavailable filesystem size never causes an unbounded allocation.
+    public static func decode(contentsOf url: URL) throws -> [SubscriptionRecord] {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let data = try handle.read(upToCount: maxFileSize + 1) ?? Data()
+        guard data.count <= maxFileSize else { throw SubscriptionTransferError.fileTooLarge }
+        return try decode(data)
     }
 
     private struct Header: Decodable {

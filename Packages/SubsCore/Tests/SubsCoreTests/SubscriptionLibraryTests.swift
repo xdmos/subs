@@ -161,6 +161,55 @@ struct SubscriptionLibraryTests {
         #expect(try SubscriptionTransfer.decode(try Data(contentsOf: second.backupURL)) == [gamma])
     }
 
+    @Test func concurrentBackupWritersNeverOverwrite() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { cleanup(directory) }
+        let payloads = (0..<20).map { Data("payload-\($0)".utf8) }
+        let now = fixedNow
+        let timeZone = utc
+
+        let urls = try await withThrowingTaskGroup(of: URL.self) { group in
+            for payload in payloads {
+                group.addTask {
+                    try SubscriptionLibrary.writeImportBackup(
+                        payload, directory: directory, date: now, timeZone: timeZone
+                    )
+                }
+            }
+            var urls: [URL] = []
+            for try await url in group {
+                urls.append(url)
+            }
+            return urls
+        }
+
+        #expect(Set(urls).count == payloads.count)
+        let stored = try urls.map { try Data(contentsOf: $0) }
+        #expect(Set(stored) == Set(payloads))
+    }
+
+    @Test func defaultCalendarIsGregorianEvenWhenCurrentCalendarIsNot() throws {
+        let (directory, container, _) = try makeStore()
+        defer { cleanup(directory) }
+        let gregorian = SubscriptionTransfer.gregorianCalendar(timeZone: utc)
+        let leapDay = SubscriptionRecord(
+            id: UUID(), name: "Leap", startDay: CalendarDay(year: 2028, month: 2, day: 29)
+        )
+        let context = ModelContext(container)
+        context.insert(Subscription(
+            name: leapDay.name,
+            startDate: leapDay.startDay.date(calendar: gregorian)!,
+            id: leapDay.id
+        ))
+        try context.save()
+
+        #expect(try SubscriptionLibrary.records(in: container, calendar: gregorian) == [leapDay])
+        try SubscriptionLibrary.replaceAll(in: container, with: [leapDay], calendar: gregorian)
+        #expect(try SubscriptionLibrary.records(in: container, calendar: gregorian) == [leapDay])
+        #expect(SubscriptionTransfer.gregorianCalendar(timeZone: utc).identifier == .gregorian)
+    }
+
     @Test func failedBackupChangesNothing() throws {
         let (directory, container, storeURL) = try makeStore()
         defer { cleanup(directory) }

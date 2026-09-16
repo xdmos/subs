@@ -31,17 +31,6 @@ final class DataTransferController {
         let currentCount: Int
     }
 
-    private enum FileFailure: LocalizedError {
-        case tooLarge
-
-        var errorDescription: String? {
-            switch self {
-            case .tooLarge:
-                "The file is too large to be a subs export."
-            }
-        }
-    }
-
     var pendingImport: PendingImport?
     var banner: Banner?
 
@@ -82,14 +71,9 @@ final class DataTransferController {
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
         do {
-            if let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-               size > SubscriptionTransfer.maxFileSize {
-                throw FileFailure.tooLarge
-            }
-            let data = try Data(contentsOf: url)
             // The whole file is validated here, before any confirmation or
             // change, so a rejected file never reaches the store.
-            let records = try SubscriptionTransfer.decode(data)
+            let records = try SubscriptionTransfer.decode(contentsOf: url)
             let currentCount = try SubscriptionLibrary.records(in: container).count
             pendingImport = PendingImport(fileName: url.lastPathComponent, records: records, currentCount: currentCount)
         } catch {

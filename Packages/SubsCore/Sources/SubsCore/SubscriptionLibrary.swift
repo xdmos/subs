@@ -41,7 +41,10 @@ public enum SubscriptionLibrary {
     }
 
     /// Every subscription in the store as a transfer record, in fetch order.
-    public static func records(in container: ModelContainer, calendar: Calendar = .current) throws -> [SubscriptionRecord] {
+    public static func records(
+        in container: ModelContainer,
+        calendar: Calendar = SubscriptionTransfer.gregorianCalendar()
+    ) throws -> [SubscriptionRecord] {
         let context = ModelContext(container)
         context.autosaveEnabled = false
         return try context.fetch(FetchDescriptor<Subscription>()).compactMap { subscription in
@@ -61,7 +64,7 @@ public enum SubscriptionLibrary {
     public static func replaceAll(
         in container: ModelContainer,
         with records: [SubscriptionRecord],
-        calendar: Calendar = .current,
+        calendar: Calendar = SubscriptionTransfer.gregorianCalendar(),
         save: (ModelContext) throws -> Void = { try $0.save() }
     ) throws {
         // Validate before deleting anything, so an impossible day in the
@@ -115,12 +118,18 @@ public enum SubscriptionLibrary {
 
         var url = directory.appendingPathComponent("subs-before-import-\(stamp).json")
         var suffix = 2
-        while FileManager.default.fileExists(atPath: url.path) {
-            url = directory.appendingPathComponent("subs-before-import-\(stamp)-\(suffix).json")
-            suffix += 1
+        while true {
+            do {
+                // The exclusive create closes the race between choosing a
+                // suffix and writing it. A concurrent import can never replace
+                // an existing recovery file.
+                try data.write(to: url, options: .withoutOverwriting)
+                return url
+            } catch let error as CocoaError where error.code == .fileWriteFileExists {
+                url = directory.appendingPathComponent("subs-before-import-\(stamp)-\(suffix).json")
+                suffix += 1
+            }
         }
-        try data.write(to: url, options: .atomic)
-        return url
     }
 
     /// The whole import, in the only safe order: read the current list,
@@ -134,7 +143,7 @@ public enum SubscriptionLibrary {
         backupDirectory: URL,
         now: Date = .now,
         timeZone: TimeZone = .current,
-        calendar: Calendar = .current,
+        calendar: Calendar = SubscriptionTransfer.gregorianCalendar(),
         save: (ModelContext) throws -> Void = { try $0.save() }
     ) throws -> ImportResult {
         let previous = try records(in: container, calendar: calendar)
