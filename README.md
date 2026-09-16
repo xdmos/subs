@@ -17,6 +17,10 @@ It shows how many days are left until each renewal, with a Liquid Glass interfac
   counts down the days until it starts.
 - Add (`⌘N`), edit (right-click → Edit…) and delete subscriptions. Deleting asks for
   confirmation inside the panel.
+- Move the whole list between devices: `⋯ → Export JSON…` writes a versioned file,
+  and `Import JSON…` validates the whole file, saves a copy of the current data to
+  the `Import Backups` folder next to the data file, and only then replaces the list —
+  so a bad file never changes anything and the previous data can always be imported back.
 - Launch at Login, from the `⋯` menu, with a shortcut to System Settings when macOS
   asks for approval.
 - If saving fails, for example on a full disk, the change is undone and the error is shown

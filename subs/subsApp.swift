@@ -11,13 +11,14 @@ import SwiftData
 @main
 struct subsApp: App {
     @State private var persistence = PersistenceController()
+    @State private var transfer = DataTransferController()
 
     var body: some Scene {
         MenuBarExtra("Subscriptions", systemImage: "creditcard.fill") {
             Group {
                 switch persistence.state {
                 case .ready(let container):
-                    ContentView()
+                    ContentView(transfer: transfer, backupDirectory: persistence.importBackupDirectory)
                         .modelContainer(container)
                 case .failed(let details):
                     StoreErrorView(details: details, recovery: .startFresh, persistence: persistence)

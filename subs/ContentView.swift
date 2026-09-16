@@ -18,6 +18,9 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Subscription.startDate, order: .reverse) private var subscriptions: [Subscription]
 
+    let transfer: DataTransferController
+    let backupDirectory: URL
+
     @State private var route: PanelRoute = .list
     @State private var persistenceErrorMessage: String?
     @State private var pendingDeletion: Subscription?
@@ -36,7 +39,10 @@ struct ContentView: View {
                     nearest: entries.first,
                     count: entries.count,
                     isShowingForm: isShowingForm,
+                    isImportEnabled: !isShowingForm && transfer.pendingImport == nil,
                     onToggleAdd: toggleForm,
+                    onExport: { transfer.exportJSON(container: modelContext.container) },
+                    onImport: { transfer.chooseImportFile(container: modelContext.container) },
                     loginItem: loginItem
                 )
 
@@ -53,6 +59,40 @@ struct ContentView: View {
                     ErrorBanner(title: "Couldn’t Change Login Item", message: message) {
                         withAnimation(.smooth(duration: 0.3)) { loginItem.errorMessage = nil }
                     }
+                    .transition(.blurReplace)
+                }
+
+                if let banner = transfer.banner {
+                    switch banner {
+                    case let .success(title, message, action):
+                        SuccessBanner(
+                            title: title,
+                            message: message,
+                            actionTitle: action?.title,
+                            action: action.map { action in { transfer.reveal(action.url) } },
+                            onDismiss: { withAnimation(.smooth(duration: 0.3)) { transfer.dismissBanner() } }
+                        )
+                        .transition(.blurReplace)
+                    case let .failure(title, message):
+                        ErrorBanner(title: title, message: message) {
+                            withAnimation(.smooth(duration: 0.3)) { transfer.dismissBanner() }
+                        }
+                        .transition(.blurReplace)
+                    }
+                }
+
+                if let pending = transfer.pendingImport {
+                    ImportConfirmationBanner(
+                        currentCount: pending.currentCount,
+                        incomingCount: pending.records.count,
+                        fileName: pending.fileName,
+                        onCancel: { withAnimation(.smooth(duration: 0.3)) { transfer.cancelImport() } },
+                        onConfirm: {
+                            withAnimation(.smooth(duration: 0.3)) {
+                                transfer.confirmImport(container: modelContext.container, backupDirectory: backupDirectory)
+                            }
+                        }
+                    )
                     .transition(.blurReplace)
                 }
 
@@ -107,6 +147,12 @@ struct ContentView: View {
         .onChange(of: route) {
             persistenceErrorMessage = nil
             pendingDeletion = nil
+            transfer.pendingImport = nil
+            transfer.banner = nil
+        }
+        .onChange(of: transfer.pendingImport) {
+            // Only one confirmation on screen at a time.
+            withAnimation(.smooth(duration: 0.3)) { pendingDeletion = nil }
         }
     }
 
@@ -191,6 +237,7 @@ struct ContentView: View {
     private func requestDeletion(_ subscription: Subscription) {
         withAnimation(.smooth(duration: 0.3)) {
             pendingDeletion = subscription
+            transfer.pendingImport = nil
         }
     }
 
@@ -239,19 +286,10 @@ struct ContentView: View {
         } catch {
             modelContext.rollback()
             withAnimation(.smooth(duration: 0.3)) {
-                persistenceErrorMessage = Self.message(for: error)
+                persistenceErrorMessage = DataTransferController.saveMessage(for: error)
             }
             return false
         }
-    }
-
-    private static func message(for error: Error) -> String {
-        let nsError = error as NSError
-        // SQLITE_FULL: the store could not grow.
-        if nsError.domain == "NSSQLiteErrorDomain", nsError.code == 13 {
-            return "Your disk is full. Free up some space and try again."
-        }
-        return error.localizedDescription
     }
 }
 
@@ -277,13 +315,19 @@ struct SubscriptionEntry: Identifiable {
         container.mainContext.insert(Subscription(name: name, startDate: startDate))
     }
 
-    return ContentView()
-        .modelContainer(container)
-        .preferredColorScheme(.dark)
+    return ContentView(
+        transfer: DataTransferController(),
+        backupDirectory: FileManager.default.temporaryDirectory
+    )
+    .modelContainer(container)
+    .preferredColorScheme(.dark)
 }
 
 #Preview("Empty List") {
-    ContentView()
-        .modelContainer(for: Subscription.self, inMemory: true)
-        .preferredColorScheme(.dark)
+    ContentView(
+        transfer: DataTransferController(),
+        backupDirectory: FileManager.default.temporaryDirectory
+    )
+    .modelContainer(for: Subscription.self, inMemory: true)
+    .preferredColorScheme(.dark)
 }

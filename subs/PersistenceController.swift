@@ -25,6 +25,13 @@ final class PersistenceController {
     let storeURL: URL
     let legacyStoreURL: URL
 
+    /// Where the pre-import copies of the data live: "Import Backups" next to
+    /// the store file, outside the "subs-backup-*" folders of Start Fresh.
+    var importBackupDirectory: URL {
+        storeURL.deletingLastPathComponent()
+            .appending(path: "Import Backups", directoryHint: .isDirectory)
+    }
+
     // Kept so startFresh() can reopen a store with the exact same schema and configuration.
     private let schema: Schema
     private let configuration: ModelConfiguration
@@ -36,7 +43,7 @@ final class PersistenceController {
         // to the defaults uses. Give subs its own store file instead; on first
         // launch the subscriptions are copied over from the legacy file, which
         // is left untouched.
-        let applicationSupport = URL.applicationSupportDirectory
+        let applicationSupport = Self.applicationSupportDirectory()
         let storeDirectory = applicationSupport.appending(path: "pl.glasek.subs", directoryHint: .isDirectory)
         storeURL = storeDirectory.appending(path: "subs.store")
         legacyStoreURL = applicationSupport.appending(path: "default.store")
@@ -47,6 +54,20 @@ final class PersistenceController {
         // load() always replaces this synchronously before init returns.
         state = .failed(details: "")
         load()
+    }
+
+    private static func applicationSupportDirectory() -> URL {
+        #if DEBUG
+        // "-SubsDataDirectory <path>" on the command line (open ... --args)
+        // replaces Application Support, so a debug build — and the automated
+        // checks driving it — never touches the user's real data. Everything
+        // (store, migration marker, legacy file, Import Backups) is derived
+        // from this one root.
+        if let path = UserDefaults.standard.string(forKey: "SubsDataDirectory") {
+            return URL(filePath: (path as NSString).expandingTildeInPath, directoryHint: .isDirectory)
+        }
+        #endif
+        return URL.applicationSupportDirectory
     }
 
     private func load() {

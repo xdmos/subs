@@ -13,7 +13,10 @@ struct PanelHeader: View {
     let nearest: SubscriptionEntry?
     let count: Int
     let isShowingForm: Bool
+    let isImportEnabled: Bool
     let onToggleAdd: () -> Void
+    let onExport: () -> Void
+    let onImport: () -> Void
     let loginItem: LoginItemController
 
     var body: some View {
@@ -53,6 +56,13 @@ struct PanelHeader: View {
             Menu {
                 Button("Add Subscription", systemImage: "plus", action: onToggleAdd)
                     .disabled(isShowingForm)
+
+                Divider()
+
+                Button("Export JSON…", systemImage: "square.and.arrow.up", action: onExport)
+
+                Button("Import JSON…", systemImage: "square.and.arrow.down", action: onImport)
+                    .disabled(!isImportEnabled)
 
                 Divider()
 
