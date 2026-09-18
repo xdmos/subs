@@ -1,5 +1,10 @@
 # iCloud Backup and Restore Implementation Plan
 
+> **Status (2026-09-18):** Implemented and verified locally. The backup feature landed
+> through commits ending in `69f1fcd`; the follow-up fix keeping SwiftData local while
+> iCloud is used only for JSON recovery landed in `cc7a5d5`. The original checkboxes
+> below are preserved as an execution record and are not a current product-status list.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Automatically preserve a validated snapshot of subscriptions in the user's private iCloud Drive container and restore it after a genuine fresh installation.

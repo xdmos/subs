@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    runs-on: xcode-27
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Test SubsCore
+        run: swift test --package-path Packages/SubsCore
+
+      - name: Build app without signing
+        run: >-
+          xcodebuild
+          -project subs.xcodeproj
+          -scheme subs
+          -configuration Debug
+          CODE_SIGNING_ALLOWED=NO
+          build

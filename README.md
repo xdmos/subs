@@ -37,8 +37,10 @@ It shows how many days are left until each renewal, with a Liquid Glass interfac
 
 ## Requirements
 
-- macOS 27
-- Xcode 27
+- The app requires macOS 27 and Xcode 27 because its interface uses APIs from that
+  release.
+- The UI-independent `SubsCore` package supports macOS 15 and later so its storage,
+  transfer, and recovery logic can be tested and reused separately.
 
 ## Build
 
