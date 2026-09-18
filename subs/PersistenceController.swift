@@ -48,7 +48,10 @@ final class PersistenceController {
         let storeDirectory = applicationSupport.appending(path: "pl.glasek.subs", directoryHint: .isDirectory)
         storeURL = storeDirectory.appending(path: "subs.store")
         legacyStoreURL = applicationSupport.appending(path: "default.store")
-        let configuration = ModelConfiguration(schema: schema, url: storeURL)
+        // The iCloud entitlement is used only for the validated JSON backup.
+        // Keep SwiftData local; `.automatic` would independently enable
+        // CloudKit and make this existing local schema fail to open.
+        let configuration = LocalStoreConfiguration.make(schema: schema, url: storeURL)
         self.schema = schema
         self.configuration = configuration
 
